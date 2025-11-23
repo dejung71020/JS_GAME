@@ -1,3 +1,4 @@
+// js/main.js
 import { Game } from './Game.js'; // Game 클래스 가져오기
 
 const game = new Game();

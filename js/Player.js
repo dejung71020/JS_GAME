@@ -1,17 +1,9 @@
 // js/Player.js
-// 고양이 모델 로딩, 키 입력 상태, 움직임 및 점프 로직을 담당합니다.
-//import * as THREE from 'three'; // Three.js 가져오기 (JS 모듈에서 필요)
-
 const keyState = {
     w: false, a: false, s: false, d: false, space: false
 };
 
-// ⭐⭐ 충돌 감지용 벡터 (매 프레임 재사용) ⭐⭐
-const collisionVector = new THREE.Vector3();
-
-// 키보드 이벤트 리스너 함수는 그대로 유지
 document.addEventListener('keydown', (event) => {
-    // ... 기존 onKeyDown 로직 ...
     switch (event.key) {
         case 'w': keyState.w = true; break;
         case 'a': keyState.a = true; break;
@@ -21,7 +13,6 @@ document.addEventListener('keydown', (event) => {
     }
 });
 document.addEventListener('keyup', (event) => {
-    // ... 기존 onKeyUp 로직 ...
     switch (event.key) {
         case 'w': keyState.w = false; break;
         case 'a': keyState.a = false; break;
@@ -31,170 +22,124 @@ document.addEventListener('keyup', (event) => {
     }
 });
 
-
 export class Player {
-    constructor(scene) {
+    constructor(scene, world) {
         this.model = null;
+        this.playerGroup = new THREE.Group(); // 모델을 담을 그룹
         this.scene = scene;
-        this.isJumping = false;
-        this.verticalVelocity = 0;
-        this.gravity = -0.1;
-        this.jumpForce = 1.2;
-        this.onGround = true; 
-        
-        // 충돌 계산을 위한 고양이 모델의 대략적인 크기
-        this.height = 1; // 원래 1
-        this.radius = 0.5; // XZ 평면에서의 반경
+        this.world = world; 
+        this.body = null;   
 
-        // ⭐⭐ 레이캐스팅 관련 변수 추가 ⭐⭐
-        this.raycaster = new THREE.Raycaster();
-        this.collisionDistance = this.radius + 0.1; // 모델 반경 + 약간의 여유 공간
+        this.maxMoveSpeed = 7;          
+        this.accelerationFactor = 0.15; 
+        this.decelerationFactor = 0.9;  
+        this.jumpForce = 8; 
+
+        this.playerRadius = 0.5;
+        this.playerHeight = 1.0; 
+        this.horizontalVelocity = new THREE.Vector3(0, 0, 0); 
+        this.jumpKeyPressedLastFrame = false;
 
         this.loadModel();
     }
 
-    
+    createPhysicsBody() {
+        // 플레이어를 위한 캡슐 형태의 충돌체 (Cylinder를 사용하고 회전을 막음)
+        const shape = new CANNON.Cylinder(this.playerRadius, this.playerRadius, this.playerHeight, 8);
+        
+        this.body = new CANNON.Body({
+            mass: 5, // 움직이는 바디
+            position: new CANNON.Vec3(0, this.playerHeight / 2 + 1, 0),
+            shape: shape,
+        });
+
+        this.body.fixedRotation = true; // 회전 방지 (캐릭터 제어 시 필수)
+        this.body.updateMassProperties();
+        
+        this.world.addBody(this.body);
+    }
+
     loadModel() {
         const loader = new THREE.GLTFLoader();
         loader.load('assets/cat.glb', (gltf) => {
             this.model = gltf.scene;
             this.model.scale.set(1, 1, 1);
-            this.model.position.y = 0.01;
-            this.scene.add(this.model);
-            console.log('Player model loaded.');
+            this.model.position.y = -this.playerHeight / 2; // 모델 중심 조정
+            
+            this.playerGroup.add(this.model);
+            this.scene.add(this.playerGroup);
+            
+            this.createPhysicsBody(); 
         });
     }
 
-    // ⭐⭐⭐ 1. 충돌 감지 헬퍼 함수 추가 ⭐⭐⭐
-    // ⭐⭐ 1. 벽 충돌 감지 함수 (범용적인 3차원 충돌 처리) ⭐⭐
-    checkWallCollision(platforms, directionVector) {
-        if (!this.model) return false;
-        
-        // 레이의 시작점: 플레이어 모델의 중심
-        // 방향: 인수로 받은 directionVector
-        // 거리: this.collisionDistance까지
-        this.raycaster.set(this.model.position, directionVector);
-        this.raycaster.far = this.collisionDistance;
-        
-        // platforms 배열을 대상으로 충돌 검사를 실행합니다.
-        // 두 번째 인자 true는 플랫폼의 모든 자식(Geometry)까지 검사하라는 의미입니다.
-        const intersections = this.raycaster.intersectObjects(platforms, true);
-        
-        // 교차점(충돌 지점)이 하나라도 발견되면 true를 반환하여 이동을 막습니다.
-        return intersections.length > 0;
+    checkIsOnGround() {
+        // 물리 바디의 Y축 속도가 0에 가까운지 확인 (충돌 후 정지 상태)
+        if (!this.body) return false;
+        return Math.abs(this.body.velocity.y) < 0.1;
     }
 
-    // 충돌 감지 함수 (범용적인 착지 감지)
-    checkCollision(platforms) {
-        if (!this.model) return 0.0;
+    update() {
+        if (!this.model || !this.body) return;
 
-        // 1. 레이의 시작점: 플레이어 모델의 중심 위치
-        const rayOrigin = this.model.position.clone(); 
+        const onGround = this.checkIsOnGround();
+        let inputX = 0;
+        let inputZ = 0;
         
-        // 2. 레이의 방향: Y축 아래 (-1)
-        const rayDirection = new THREE.Vector3(0, -1, 0); 
+        // 1. 입력 방향 계산
+        if (keyState.w) inputZ -= 1;
+        if (keyState.s) inputZ += 1;
+        if (keyState.a) inputX -= 1;
+        if (keyState.d) inputX += 1;
         
-        // 3. Raycaster 설정
-        this.raycaster.set(rayOrigin, rayDirection);
-        // 레이를 충분히 아래로 쏘아 바닥이나 플랫폼을 찾습니다. (예: 10 유닛)
-        this.raycaster.far = 10; 
+        let inputVectorLength = Math.sqrt(inputX * inputX + inputZ * inputZ);
 
-        // 4. 모든 플랫폼과 교차점 검사
-        // 두 번째 인수인 'true'는 platform 모델 내부의 모든 복잡한 메시(Geometry)까지 
-        // 충돌 검사를 하도록 하여 '범용적인 형태' 충돌을 가능하게 합니다.
-        const intersections = this.raycaster.intersectObjects(platforms, true);
+        // 2. 가속/감속 로직
+        if (inputVectorLength > 0) {
+            let normalizedInputX = inputX / inputVectorLength;
+            let normalizedInputZ = inputZ / inputVectorLength;
 
-        let landingY = 0.0; // 기본 바닥 높이 (Ground Plane)
-
-        if (intersections.length > 0) {
-            // 교차점 배열은 거리가 가까운 순서로 정렬되므로, 첫 번째 요소가 가장 가까운 표면입니다.
-            const closestIntersection = intersections[0]; 
+            let targetX = normalizedInputX * this.maxMoveSpeed;
+            let targetZ = normalizedInputZ * this.maxMoveSpeed;
             
-            // 충돌 지점의 Y 좌표 (이것이 착지해야 할 실제 표면 높이입니다.)
-            const surfaceY = closestIntersection.point.y; 
+            // 가속 (Lerp)
+            this.horizontalVelocity.x += (targetX - this.horizontalVelocity.x) * this.accelerationFactor;
+            this.horizontalVelocity.z += (targetZ - this.horizontalVelocity.z) * this.accelerationFactor;
             
-            // 플레이어의 발 위치
-            const playerBottomY = this.model.position.y - this.height / 2;
-
-            // **핵심 착지 조건:**
-            // 레이가 감지한 표면(surfaceY)이 현재 플레이어의 발 위치보다
-            // 너무 위에 있지 않은지 확인합니다. (0.2는 작은 여유값)
-            if (surfaceY < playerBottomY + 0.2) { 
-                landingY = surfaceY;
+        } else {
+            // 감속 (Deceleration)
+            this.horizontalVelocity.x *= this.decelerationFactor;
+            this.horizontalVelocity.z *= this.decelerationFactor;
+            
+            if (this.horizontalVelocity.lengthSq() < 0.01) {
+                this.horizontalVelocity.set(0, 0, 0);
             }
         }
+
+        // 3. 물리 바디의 수평 속도에 최종 계산된 값 적용
+        this.body.velocity.x = this.horizontalVelocity.x;
+        this.body.velocity.z = this.horizontalVelocity.z;
         
-        return landingY; 
-    }
-    
-    update(platforms) {
-        if (!this.model) return;
-
-        const moveSpeed = 0.05;
-
-        // ⭐⭐ 2. WASD 이동에 벽 충돌 검사 통합 ⭐⭐
-    
-        // A. Z축(앞/뒤) 이동 검사
-        if (keyState.w) {
-            // [앞] 방향 벡터 설정 (0, 0, -1)
-            collisionVector.set(0, 0, -1);
-            if (!this.checkWallCollision(platforms, collisionVector)) {
-                this.model.position.z -= moveSpeed;
-            }
-        }
-        if (keyState.s) {
-            // [뒤] 방향 벡터 설정 (0, 0, 1)
-            collisionVector.set(0, 0, 1);
-            if (!this.checkWallCollision(platforms, collisionVector)) {
-                this.model.position.z += moveSpeed;
-            }
+        // ⭐⭐ 4. 점프 로직 수정: 이번 프레임에 키가 새로 눌렸는지 확인 ⭐⭐
+        const isJumpPressedNow = keyState.space; // 현재 눌림 상태
+        
+        if (onGround && isJumpPressedNow && !this.jumpKeyPressedLastFrame) {
+            // 땅에 닿아있고, 현재 눌렸으며, 이전 프레임에는 눌리지 않았을 때만 실행!
+            this.body.velocity.y = this.jumpForce; 
         }
 
-        // B. X축(좌/우) 이동 검사
-        if (keyState.a) {
-            // [좌] 방향 벡터 설정 (-1, 0, 0)
-            collisionVector.set(-1, 0, 0);
-            if (!this.checkWallCollision(platforms, collisionVector)) {
-                this.model.position.x -= moveSpeed;
-            }
-        }
-        if (keyState.d) {
-            // [우] 방향 벡터 설정 (1, 0, 0)
-            collisionVector.set(1, 0, 0);
-            if (!this.checkWallCollision(platforms, collisionVector)) {
-                this.model.position.x += moveSpeed;
-            }
+        // 5. 물리 바디의 위치를 Three.js Mesh에 동기화
+        this.playerGroup.position.copy(this.body.position);
+        this.playerGroup.quaternion.copy(this.body.quaternion);
+        
+        // (선택) 모델 방향 회전
+        if (inputVectorLength > 0) {
+            const direction = new THREE.Vector3(inputX, 0, inputZ).normalize();
+            const angle = Math.atan2(direction.x, direction.z);
+            this.playerGroup.rotation.y = angle;
         }
 
-        // 점프 로직
-        if (this.onGround && keyState.space) {
-            this.verticalVelocity = this.jumpForce;
-            this.isJumping = true;
-            this.onGround = false; // 점프하면 바닥에서 떨어짐
-        }
-
-        if (this.isJumping || !this.onGround) {
-            this.model.position.y += this.verticalVelocity;
-            this.verticalVelocity += this.gravity;
-        }   
-        // ⭐⭐ 3. 충돌 감지 실행 ⭐⭐
-        // 착지해야 할 표면의 Y 좌표 (플랫폼 또는 바닥)
-        const targetSurfaceY = this.checkCollision(platforms);
-
-        // 플레이어 모델의 중심이 아닌, 발이 닿는 Y 위치
-        const groundLevelY = targetSurfaceY + this.height / 2; 
-
-        // 4. 충돌 결과 반영
-        // 현재 하강 중이고 (verticalVelocity <= 0), 
-        // 플레이어의 위치가 착지 지점보다 아래로 내려가려 할 때 (또는 이미 아래일 때)
-        if (this.verticalVelocity <= 0 && this.model.position.y <= groundLevelY) {
-            this.model.position.y = groundLevelY; // 충돌 표면 위로 위치 고정
-            this.verticalVelocity = 0;              // 수직 속도 멈춤
-            this.isJumping = false;
-            this.onGround = true;                   // 땅에 닿음
-        }// 5. 공중에 떠 있는 경우 (플랫폼 모서리에서 걸어 나갔을 때)
-        else if (this.model.position.y > groundLevelY) {
-             this.onGround = false;
-        }
+        // ⭐⭐ 6. 마지막으로, 현재 키 상태를 다음 프레임을 위해 저장 ⭐⭐
+        this.jumpKeyPressedLastFrame = isJumpPressedNow;
     }
 }

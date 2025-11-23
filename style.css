@@ -1,1 +1,7 @@
 /* style.css */
+body {
+    /* 배경색을 검은색으로 설정하고 여백을 없애서 캔버스가 화면 전체를 채우도록 합니다. */
+    margin: 0;
+    background-color: #000;
+    overflow: hidden; /* 스크롤바가 생기지 않도록 설정 */
+}
