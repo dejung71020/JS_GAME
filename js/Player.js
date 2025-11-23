@@ -1,6 +1,6 @@
 // js/Player.js
 const keyState = {
-    w: false, a: false, s: false, d: false, space: false
+    w: false, a: false, s: false, d: false, space: false, f: false
 };
 
 document.addEventListener('keydown', (event) => {
@@ -10,6 +10,7 @@ document.addEventListener('keydown', (event) => {
         case 's': keyState.s = true; break;
         case 'd': keyState.d = true; break;
         case ' ': keyState.space = true; break;
+        case 'f': keyState.f = true; break;
     }
 });
 document.addEventListener('keyup', (event) => {
@@ -19,6 +20,7 @@ document.addEventListener('keyup', (event) => {
         case 's': keyState.s = false; break;
         case 'd': keyState.d = false; break;
         case ' ': keyState.space = false; break;
+        case 'f': keyState.f = false;; break;
     }
 });
 
@@ -39,6 +41,20 @@ export class Player {
         this.playerHeight = 1.0; 
         this.horizontalVelocity = new THREE.Vector3(0, 0, 0); 
         this.jumpKeyPressedLastFrame = false;
+
+        // ⭐⭐⭐ 애니메이션 관련 변수 추가 ⭐⭐⭐
+        this.mixer = null; 
+        this.actions = {}; // 애니메이션 액션을 이름으로 저장할 객체
+        this.clock = new THREE.Clock(); // 시간 흐름을 측정하여 믹서를 업데이트
+        
+
+        // ⭐⭐ currentAction 초기화 ⭐⭐
+        this.currentAction = null;
+
+        // ⭐⭐⭐ Wave 상태 관리 변수 추가 ⭐⭐⭐
+        this.fKeyPressedLastFrame = false; // F 키 Edge Trigger용
+        this.isWaving = false; // 현재 Wave 애니메이션 재생 중인지 여부
+
 
         this.loadModel();
     }
@@ -61,7 +77,7 @@ export class Player {
 
     loadModel() {
         const loader = new THREE.GLTFLoader();
-        loader.load('assets/cat.glb', (gltf) => {
+        loader.load('./assets/astronaut.glb', (gltf) => {
             this.model = gltf.scene;
             this.model.scale.set(1, 1, 1);
             this.model.position.y = -this.playerHeight / 2; // 모델 중심 조정
@@ -70,6 +86,37 @@ export class Player {
             this.scene.add(this.playerGroup);
             
             this.createPhysicsBody(); 
+            // ⭐⭐⭐ 애니메이션 믹서 생성 및 클립 추출 ⭐⭐⭐
+            this.mixer = new THREE.AnimationMixer(this.model);
+            
+            // ⭐⭐⭐ wave 애니메이션 완료 리스너 추가 ⭐⭐⭐
+            this.mixer.addEventListener('finished', (e) => {
+                if (e.action.getClip().name === 'wave') {
+                    this.isWaving = false; 
+                }
+            });
+            
+            // GLTF 파일에 포함된 모든 애니메이션 클립을 반복합니다.
+            gltf.animations.forEach((clip) => {
+                const action = this.mixer.clipAction(clip);
+                this.actions[clip.name] = action; 
+                
+                // ⭐ wave는 LoopOnce, 나머지는 LoopRepeat 설정
+                if (clip.name === 'wave') {
+                     action.setLoop(THREE.LoopOnce, 1);
+                     action.clampWhenFinished = true;
+                } else {
+                    action.setLoop(THREE.LoopRepeat, Infinity);
+                }
+            });
+
+            // 초기 애니메이션 설정 (대기 상태로 시작)
+            this.currentAction = this.actions['idle']; // 'Idle'이 대기 애니메이션 이름이라고 가정
+            if (this.currentAction) {
+                this.currentAction.play();
+            }
+            
+            console.log('Player model and physics body created. Animations loaded:', Object.keys(this.actions));
         });
     }
 
@@ -79,8 +126,63 @@ export class Player {
         return Math.abs(this.body.velocity.y) < 0.1;
     }
 
+    // ⭐⭐⭐ 애니메이션을 부드럽게 전환하는 헬퍼 함수 ⭐⭐⭐
+    prepareAction(nextActionName, duration = 0.5) {
+        const nextAction = this.actions[nextActionName];
+
+        // ⭐⭐ 안전 체크: 다음 액션이 없거나 현재 액션이 없으면 종료 ⭐⭐
+        if (!nextAction || nextAction === this.currentAction) return;
+        
+        // 이 줄에서 오류가 났습니다. (this.currentAction이 undefined일 때)
+        if (this.currentAction) {
+            this.currentAction.fadeOut(duration); // 현재 액션을 페이드 아웃
+        }
+
+        nextAction.reset().fadeIn(duration).play(); // 다음 액션을 페이드 인 후 재생
+
+        this.currentAction = nextAction; // 현재 액션을 업데이트
+    }
+
+    // ⭐⭐⭐ 애니메이션 상태 업데이트 함수 ⭐⭐⭐
+    updateAnimation(speed, onGround) {
+        if (!this.mixer) return;
+        
+        // ⭐⭐⭐ 1. Wave 상태 확인 (최고 우선순위) ⭐⭐⭐
+        if (this.isWaving) {
+            this.prepareAction('wave', 0.2); 
+            return; 
+        }
+        
+        // 2. 공중 상태 확인 (Wave가 아닐 때만 실행)
+        if (!onGround) {
+            this.prepareAction('floating', 0.2); 
+            return;
+        } 
+        
+        // 3. 지면 상태 확인 (Wave가 아닐 때만 실행)
+        if (speed > 0.1) {
+            this.prepareAction('moon_walk', 0.2); 
+        } else {
+            this.prepareAction('idle', 0.5); 
+        }
+    }
+
     update() {
         if (!this.model || !this.body) return;
+
+        // ⭐⭐⭐ 1. 애니메이션 믹서 업데이트 ⭐⭐⭐
+        if (this.mixer) {
+            // 지난 프레임과의 시간 차이(delta time)를 얻어 믹서에 전달
+            this.mixer.update(this.clock.getDelta());
+        }
+
+        // ⭐⭐ F 키 입력 감지 (Edge Trigger) ⭐⭐
+        const isFPressedNow = keyState.f; 
+        if (isFPressedNow && !this.fKeyPressedLastFrame && !this.isWaving) {
+            this.isWaving = true; // wave 시작 플래그 켜기
+        }
+        this.fKeyPressedLastFrame = isFPressedNow; // 다음 프레임을 위해 F 키 상태 저장
+
 
         const onGround = this.checkIsOnGround();
         let inputX = 0;
@@ -138,7 +240,8 @@ export class Player {
             const angle = Math.atan2(direction.x, direction.z);
             this.playerGroup.rotation.y = angle;
         }
-
+        // ⭐⭐⭐ 2. 애니메이션 전환 로직 호출 ⭐⭐⭐
+        this.updateAnimation(inputVectorLength, onGround); // 새로 만들 함수 호출
         // ⭐⭐ 6. 마지막으로, 현재 키 상태를 다음 프레임을 위해 저장 ⭐⭐
         this.jumpKeyPressedLastFrame = isJumpPressedNow;
     }
