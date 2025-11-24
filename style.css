@@ -1,7 +1,173 @@
 /* style.css */
 body {
-    /* 배경색을 검은색으로 설정하고 여백을 없애서 캔버스가 화면 전체를 채우도록 합니다. */
-    margin: 0;
-    background-color: #000;
-    overflow: hidden; /* 스크롤바가 생기지 않도록 설정 */
+  /* 배경색을 검은색으로 설정하고 여백을 없애서 캔버스가 화면 전체를 채우도록 합니다. */
+  margin: 0;
+  background-color: #000;
+  overflow: hidden; /* 스크롤바가 생기지 않도록 설정 */
+}
+
+좋은 생각입니다! 게임의 구조를 갖추고 사용자에게 더 나은 경험을 제공하기 위해 게임 로비 화면을 추가하는 것은 매우 중요합니다. 🎮
+
+로비 화면을 구현하려면 index.html과 style.css에 로비 메뉴를 위한 HTML 요소를 추가하고, js/Game.js에서 게임 시작 로직을 분리해야 합니다.
+
+1. index.html (로비 화면 추가)
+기존 게임 화면(canvas 및 HUD) 위에 표시될 로비 화면을 추가합니다.
+
+HTML
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>나의 첫 3D 게임</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    
+    <div id="game-lobby">
+        <h1>점프 게임</h1>
+        <div class="menu-button" id="start-game-button">게임 시작</div>
+        <div class="menu-button" id="view-records-button">기록 보기</div>
+        <div class="menu-button" id="exit-game-button">게임 종료</div>
+    </div>
+    
+    <div id="victory-message" class="hidden">승리!</div>
+    <div id="instruction-message" class="hidden">정상층에서 점프를 하면 승리합니다!</div>
+    <div id="max-height-display" class="hidden">최대 도달 높이 : 0.0m</div>
+    <div id="game-timer" class="hidden">시간: 00:00</div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://unpkg.com/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+    <script src="https://unpkg.com/cannon@0.6.2/build/cannon.js"></script>
+
+    <script type="module" src="js/main.js"></script>
+  </body>
+</html>
+2. style.css (로비 스타일 추가)
+로비 화면이 중앙에 오도록 스타일링하고 버튼 스타일을 추가합니다.
+
+CSS
+
+/* style.css */
+body {
+    /* 배경색을 검은색으로 설정하고 여백을 없애서 캔버스가 화면 전체를 채우도록 합니다. */
+    margin: 0;
+    background-color: #000;
+    overflow: hidden; /* 스크롤바가 생기지 않도록 설정 */
+}
+
+/* 게임 로비 스타일 */
+#game-lobby {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.95); /* 어두운 배경 */
+    color: white;
+    font-family: sans-serif;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    z-index: 2000; /* 모든 HUD 위에 표시 */
+}
+
+#game-lobby h1 {
+    font-size: 5vw;
+    color: cyan;
+    margin-bottom: 50px;
+    text-shadow: 0 0 10px rgba(0, 255, 255, 0.7);
+}
+
+.menu-button {
+    padding: 15px 30px;
+    margin: 10px 0;
+    font-size: 2.5vw;
+    font-weight: bold;
+    color: white;
+    background-color: #333;
+    border: 3px solid cyan;
+    cursor: pointer;
+    transition: background-color 0.3s, color 0.3s, transform 0.1s;
+    width: 300px;
+    text-align: center;
+    border-radius: 5px;
+}
+
+.menu-button:hover {
+    background-color: cyan;
+    color: black;
+    transform: scale(1.05);
+}
+
+/* 승리 메시지 스타일 */
+#victory-message {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.7); /* 반투명 배경 */
+  color: gold;
+  font-family: sans-serif;
+  font-size: 10vw; /* 화면 크기에 비례하여 크게 표시 */
+  font-weight: bold;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000; /* Three.js 캔버스 위에 표시 */
+  pointer-events: none; /* 클릭 이벤트 무시 */
+  text-shadow: 0 0 20px rgba(255, 215, 0, 0.8);
+  opacity: 0;
+  transition: opacity 1s; /* 부드러운 등장 효과 */
+}
+
+/* 안내 메시지 스타일 */
+#instruction-message {
+  position: fixed;
+  top: 20%; /* 화면 상단에서 20% 지점 */
+  left: 0;
+  width: 100%;
+  color: white;
+  font-family: sans-serif;
+  font-size: 3vw;
+  font-weight: bold;
+  text-align: center;
+  z-index: 999; /* victory-message보다 아래, 캔버스보다 위 */
+  pointer-events: none;
+  text-shadow: 0 0 10px rgba(0, 255, 255, 0.6); /* 연한 청색 그림자 */
+  opacity: 0;
+  transition: opacity 0.5s; /* 부드러운 등장/사라짐 효과 */
+}
+
+/* 최대 도달 높이 표시 스타일 */
+#max-height-display {
+  position: fixed;
+  top: 20px; /* 상단에서 20px */
+  right: 20px; /* 오른쪽에서 20px */
+  color: cyan; /* 눈에 잘 띄는 색상 */
+  font-family: sans-serif;
+  font-size: 24px;
+  font-weight: bold;
+  z-index: 1000;
+  text-shadow: 0 0 5px rgba(0, 0, 0, 0.5);
+}
+
+/* ✅ 추가: 게임 타이머 표시 스타일 (왼쪽 상단) */
+#game-timer {
+  position: fixed;
+  top: 20px;
+  left: 20px;
+  color: white;
+  font-family: monospace; /* 시간은 모노스페이스 폰트가 보기 좋음 */
+  font-size: 24px;
+  font-weight: bold;
+  z-index: 1000;
+  text-shadow: 0 0 5px rgba(0, 0, 0, 0.5);
+}
+
+.hidden {
+  display: none !important;
 }

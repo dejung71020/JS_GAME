@@ -1,19 +1,36 @@
 <!-- index.html -->
 <!DOCTYPE html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>나의 첫 3D 게임</title>
-    <link rel="stylesheet" href="style.css">
-</head>
-<body>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div id="game-lobby">
+      <h1>점프 게임</h1>
+      <div class="menu-button" id="start-game-button">게임 시작</div>
+      <div class="menu-button" id="view-records-button">기록 보기</div>
+      <div class="menu-button" id="exit-game-button">게임 종료</div>
+    </div>
+
+    <div id="victory-message" class="hidden">승리!</div>
+
+    <div id="instruction-message" class="hidden">
+      정상층에서 점프를 하면 승리합니다!
+    </div>
+
+    <div id="max-height-display">최대 도달 높이 : 0.0m</div>
+
+    <div id="game-timer">00:00</div>
+
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    
+
     <script src="https://unpkg.com/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
-    
+
     <script src="https://unpkg.com/cannon@0.6.2/build/cannon.js"></script>
-    
+
     <script type="module" src="js/main.js"></script>
-</body>
+  </body>
 </html>

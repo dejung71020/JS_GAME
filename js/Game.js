@@ -16,7 +16,33 @@ export class Game {
     this.player = null;
     this.platforms = [];
 
+    // 게임 상태 및 최종 플랫폼 위치
+    this.isGameOver = false;
+    this.finalPlatformY = 154; // 최종 플랫폼의 Y 좌표 저장
+
+    // 안내 메시지 상태 관리
+    this.isInstructionShown = false; // 안내 메시지가 현재 표시 중인지 여부
+
+    // 최대 높이 기록 변수
+    this.maxHeightReached = 0;
+
+    // 타이머 시작 시간 변수
+    this.startTime = 0;
+
+    // 로비 요소 참조
+    this.lobbyElement = document.getElementById("game-lobby");
+    this.hudElements = [
+      "max-height-display",
+      "game-timer",
+      "victory-message",
+      "instruction-message",
+    ];
+
+    this.cameraAngle = 0; // 초기 각도 (라디안)
+    this.cameraDistance = 5;
+
     this.init();
+    this.showLobby();
   }
 
   init() {
@@ -29,7 +55,7 @@ export class Game {
     );
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
-    document.body.appendChild(this.renderer.domElement);
+    //document.body.appendChild(this.renderer.domElement);
     this.camera.position.z = 5;
 
     this.scene.add(new THREE.AmbientLight(0xffffff, 1.0));
@@ -40,12 +66,97 @@ export class Game {
     this.createEnvironment();
 
     // Player 인스턴스 생성 시 world 전달
-    this.player = new Player(this.scene, this.world);
+    //this.player = new Player(this.scene, this.world);
 
     window.addEventListener("resize", this.onWindowResize.bind(this));
 
     //스카이박스 로드 및 적용
     this.loadSkybox();
+
+    // 타이머 시작 시간 기록
+    //this.startTime = Date.now();
+
+    // ✅ 추가: 카메라 회전 키 입력 핸들러
+    document.addEventListener("keydown", (event) => {
+      const rotationSpeed = 0.1; // 각도 변화 속도 (라디안)
+      if (event.key === "q" || event.key === "Q") {
+        // Q: 시계 반대 방향 (좌회전)
+        this.cameraAngle += rotationSpeed;
+      } else if (event.key === "e" || event.key === "E") {
+        // E: 시계 방향 (우회전)
+        this.cameraAngle -= rotationSpeed;
+      } // 각도가 2*PI(360도)를 넘지 않도록 합니다.
+      this.cameraAngle %= Math.PI * 2;
+    });
+  }
+
+  // ✅ 추가: 로비 화면 표시 및 이벤트 설정
+  showLobby() {
+    if (this.lobbyElement) {
+      this.lobbyElement.classList.remove("hidden");
+    }
+    this.hudElements.forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.classList.add("hidden");
+    });
+
+    // 버튼 이벤트 리스너 추가
+    document.getElementById("start-game-button").onclick = () =>
+      this.startGame();
+    document.getElementById("view-records-button").onclick = () =>
+      alert("기록 보기 기능은 아직 구현되지 않았습니다.");
+    document.getElementById("exit-game-button").onclick = () => window.close(); // 브라우저 창 닫기 시도
+  }
+
+  // 게임 시작 로직 (로비를 숨기고 게임을 렌더링)
+  startGame() {
+    // 1. 로비 숨기기
+    if (this.lobbyElement) {
+      this.lobbyElement.classList.add("hidden");
+    }
+
+    // 2. 렌더러를 DOM에 추가 (게임 화면 표시)
+    document.body.appendChild(this.renderer.domElement);
+
+    // 3. HUD 표시
+    document.getElementById("max-height-display").classList.remove("hidden");
+    document.getElementById("game-timer").classList.remove("hidden");
+
+    // 4. 플레이어 생성 및 초기화
+    this.player = new Player(this.scene, this.world);
+
+    // 5. 게임 상태 초기화 및 타이머 시작
+    this.isGameOver = false;
+    this.maxHeightReached = 0;
+    this.startTime = Date.now();
+    document.getElementById("max-height-display").textContent =
+      "최대 도달 높이 : 0.0m";
+    document.getElementById("game-timer").textContent = "시간: 00:00";
+
+    // 플레이어가 없었을 때 멈춰있던 update() 루프를 다시 시작하기 위해 명시적으로 요청 (main.js에서 호출됨)
+    // main.js의 animate() 루프는 이미 실행 중이지만, player가 없었기에 카메라 추적이 되지 않았을 수 있습니다.
+    // 이 시점부터 모든 것이 정상 작동합니다.
+    console.log("Game Started!");
+  }
+
+  // 타이머 업데이트 함수
+  updateTimer() {
+    if (this.isGameOver) return; // 게임 종료 시 타이머 멈춤
+
+    const elapsedMilliseconds = Date.now() - this.startTime;
+    const totalSeconds = Math.floor(elapsedMilliseconds / 1000);
+
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+
+    // 두 자리 숫자로 포맷팅 (예: 05, 12)
+    const formattedMinutes = String(minutes).padStart(2, "0");
+    const formattedSeconds = String(seconds).padStart(2, "0");
+
+    const timerElement = document.getElementById("game-timer");
+    if (timerElement) {
+      timerElement.textContent = `${formattedMinutes}:${formattedSeconds}`;
+    }
   }
 
   loadSkybox() {
@@ -87,6 +198,9 @@ export class Game {
 
     // Y 좌표는 '중심'을 기준으로 합니다.
     platform.position.set(x, y, z);
+    // 플랫폼의 원래 색상을 userData에 저장합니다.
+    platform.userData.originalColor = color;
+    platform.userData.isFinal = y === this.finalPlatformY; // 최종 플랫폼 여부
     this.scene.add(platform);
     this.platforms.push(platform);
 
@@ -98,6 +212,16 @@ export class Game {
     const body = new CANNON.Body({
       mass: 0, // 질량이 0이면 Static (고정된 충돌체)
       shape: shape,
+    });
+
+    // ✅ 추가: 충돌 이벤트 리스너 등록
+    body.addEventListener("collide", (event) => {
+      // 충돌한 다른 바디가 플레이어 바디인지 확인해야 함.
+      // Game 클래스는 Player 객체에 접근 가능하므로 this.player.body와 비교합니다.
+      if (this.player && event.body === this.player.body) {
+        // 충돌이 발생하면 이 플랫폼의 시각적 메쉬를 찾아 색상 변경 함수를 호출합니다.
+        this.flashPlatformColor(platform);
+      }
     });
 
     // 물리 바디의 위치를 3D 오브젝트와 동일하게 설정합니다.
@@ -172,64 +296,112 @@ export class Game {
     );
     this.world.addBody(groundBody);
 
-    // 1. 낮은 플랫폼 (바닥 y=0 위에 중심이 y=0.5에 오도록):
-    this.createPlatform(5, 0.5, 0, 8, 1, 8, 0x8b4513);
+    // 3. 50개 초고난도 플랫폼 생성 로직 (가능한 난이도로 조정)
 
-    // 2. 높은 탑 (중심이 Y=5에 오도록)
-    this.createPlatform(15, 5, 5, 4, 10, 4, 0xffa500);
+    const platformCount = 50;
+    let currentY = 1.0;
+    let currentX = 0;
+    let currentZ = 0;
+    let step = 0; // 나선형/지그재그 패턴 단계를 위한 변수
 
-    // 3. 공중에 떠 있는 긴 구조물 (Z=-10, 중심이 Y=2에 오도록)
-    this.createPlatform(-10, 2, -2, 20, 4, 2, 0x008000);
+    // ✅ 플레이어 점프력(8)으로 도달 가능한 최대 난이도 값
+    const JUMP_HEIGHT = 3.0; // 수직 이동 (가능 최대: 3.26m)
+    const HORIZONTAL_JUMP = 6.0; // 수평 이동 (난이도 극대화)
 
-    // 4. 아주 작은 발판 (중심이 Y=3에 오도록)
-    this.createPlatform(2, 3, 5, 1, 1, 1, 0x0000ff);
+    const PLATFORM_W = 1.0; // 플랫폼 폭 (착지 난이도 극대화)
+    const PLATFORM_H = 0.2;
+    const PLATFORM_D = 1.0;
 
-    const jumpPlatformColor = 0x6a0dad; // 보라색
-    let currentY = 5.0;
-    let currentX = -20;
+    // 시작 플랫폼 (녹색)
+    this.createPlatform(0, 0.5, 0, 4, 1, 4, 0x00ff00);
 
-    for (let i = 0; i < 4; i++) {
-      currentY += 1.5; // 다음 발판 높이
-      currentX += 3.5; // 다음 발판 수평 거리
+    for (let i = 1; i <= platformCount; i++) {
+      // Y축 업데이트: 매번 3.0m씩 올라가 극한의 수직 점프 요구
+      currentY += JUMP_HEIGHT;
 
-      // 작은 정사각형 발판
+      // X, Z축 업데이트: 맵 경계 내에서 나선형/지그재그 패턴으로 이동
+
+      let isMoving = false; // i는 0부터 시작하므로, i+1이 10의 배수일 때 (10번째, 20번째 등)
+      if (i > 0 && (i + 1) % 10 === 0) {
+        isMoving = true;
+      }
+
+      if (i % 4 === 1) {
+        // 1단계: 북동쪽으로 이동
+        currentX += HORIZONTAL_JUMP * 0.8;
+        currentZ += HORIZONTAL_JUMP * 0.4;
+      } else if (i % 4 === 2) {
+        // 2단계: 남동쪽으로 이동
+        currentX += HORIZONTAL_JUMP * 0.8;
+        currentZ -= HORIZONTAL_JUMP * 0.4;
+      } else if (i % 4 === 3) {
+        // 3단계: 남서쪽으로 이동
+        currentX -= HORIZONTAL_JUMP * 0.8;
+        currentZ -= HORIZONTAL_JUMP * 0.4;
+      } else {
+        // 4단계: 북서쪽으로 이동
+        currentX -= HORIZONTAL_JUMP * 0.8;
+        currentZ += HORIZONTAL_JUMP * 0.4;
+      }
+
+      // 맵 경계 (X: ±25, Z: ±10)를 벗어나지 않도록 강제 제한
+      currentX = Math.min(24, Math.max(-24, currentX));
+      currentZ = Math.min(9, Math.max(-9, currentZ));
+
+      // 색상: 난이도가 올라갈수록 붉은 계열로 변경
+      const color = new THREE.Color().setHSL(
+        (i / platformCount) * 0.3,
+        1.0,
+        0.5
+      ); // 빨강, 주황 계열
+
+      // 플랫폼 생성
       this.createPlatform(
-        currentX,
-        currentY,
-        -5, // Z축은 고정
-        2.5, // 너비
-        0.5, // 높이 (얇게)
-        2.5, // 깊이
-        jumpPlatformColor
+        currentX, // X 위치 (좌우 극한)
+        currentY, // Y 위치 (수직 극한)
+        currentZ, // Z 위치 (깊이감)
+        PLATFORM_W, // 너비 (아주 좁음)
+        PLATFORM_H, // 높이
+        PLATFORM_D, // 깊이 (아주 좁음)
+        color.getHex()
+      );
+      // ✅ 2. 움직이는 플랫폼 정보 저장 (이동 로직의 핵심)
+      const platformMesh = this.platforms[this.platforms.length - 1]; // 방금 생성된 플랫폼
+      platformMesh.userData.isMoving = isMoving;
+      platformMesh.userData.startPos = {
+        x: platformMesh.position.x,
+        y: platformMesh.position.y,
+        z: platformMesh.position.z,
+      };
+
+      console.log(
+        `Platform ${i} created at (${currentX.toFixed(2)}, ${currentY.toFixed(
+          2
+        )}, ${currentZ.toFixed(2)}) (Moving: ${isMoving})`
       );
     }
 
-    // ⭐ 6. 아주 긴 외나무다리 (높이 10m) ⭐
-    this.createPlatform(
-      15,
-      10,
-      7,
-      30, // 길이 (X축으로 길게)
-      0.5,
-      1.5, // 폭이 좁아지므로 더 어렵습니다.
-      0x888888
-    );
+    // ⭐⭐⭐ 4. 정상 층 (51번째 플랫폼) 추가 ⭐⭐⭐
+    // 마지막 플랫폼보다 5m 높게, 크고 밝게 만듭니다.
 
-    // ⭐ 7. 플레이어 시작 위치 근처에 높은 기둥 ⭐
+    const finalPlatformColor = 0xffff00; // 밝은 노란색 (승리를 상징)
+    const finalPlatformY = currentY + 5.0; // 마지막 플랫폼 높이 + 5m
+
     this.createPlatform(
-      -5,
-      1.5,
-      8,
-      2,
-      3,
-      2,
-      0xff0000 // 빨간색
+      4.8,
+      152,
+      -8,
+      10,
+      0.5,
+      10,
+      finalPlatformColor,
+      0.8 // 약간의 투명도 (우주와 어우러지도록)
     );
 
     // ⭐⭐⭐ 맵 경계 벽 생성 (바닥 크기: X=50, Z=20) ⭐⭐⭐
     const sizeX = 50;
     const sizeZ = 20;
-    const wallHeight = 15;
+    const wallHeight = 150;
     const wallThickness = 1;
     const wallColor = 0x555555;
 
@@ -300,21 +472,178 @@ export class Game {
     this.renderer.setSize(window.innerWidth, window.innerHeight);
   }
 
+  // ✅ 변경: 플레이어 상태 확인 함수 (승리 조건 및 안내 메시지)
+  checkPlayerState() {
+    if (!this.player || !this.player.body || this.isGameOver) return;
+
+    const playerY = this.player.body.position.y;
+    const finalPlatformApproxY = this.finalPlatformY; // 최종 플랫폼의 중심 Y
+    const WINNING_JUMP_HEIGHT = 154.0; // 승리 기준 높이
+
+    // 1. 안내 메시지 표시/숨김 로직
+    const instructionMessageElement = document.getElementById(
+      "instruction-message"
+    );
+    if (instructionMessageElement) {
+      // 플레이어가 최종 플랫폼 근처에 도달했을 때 (예: 최종 플랫폼 Y - 2m ~ 최종 플랫폼 Y + 5m 사이)
+      if (
+        (playerY > finalPlatformApproxY - 2.0 &&
+          playerY < finalPlatformApproxY + 5.0) ||
+        (playerY > 0 && playerY < 2)
+      ) {
+        if (!this.isInstructionShown) {
+          instructionMessageElement.classList.remove("hidden");
+          instructionMessageElement.style.opacity = 1;
+          this.isInstructionShown = true;
+          console.log("Instruction message shown.");
+        }
+      } else {
+        // 최종 플랫폼 영역을 벗어나면 메시지 숨김
+        if (this.isInstructionShown) {
+          instructionMessageElement.style.opacity = 0;
+          // 트랜지션 완료 후 hidden 클래스 추가
+          setTimeout(() => {
+            instructionMessageElement.classList.add("hidden");
+          }, 500); // CSS transition 시간과 맞춤
+          this.isInstructionShown = false;
+          console.log("Instruction message hidden.");
+        }
+      }
+    }
+
+    // 2. 승리 조건 확인 로직
+    // 플레이어가 154m 높이에 도달했고, 현재 상승 중(점프 중)일 때 승리 처리
+    if (playerY >= WINNING_JUMP_HEIGHT && this.player.body.velocity.y > 0.01) {
+      this.handleWin();
+    }
+  }
+
+  // 승리 처리 및 리셋 타이머 함수
+  handleWin() {
+    this.isGameOver = true;
+    console.log("🎉 WIN! Game Over. Resetting in 10 seconds.");
+
+    // 승리 메시지 표시
+    const victoryMessageElement = document.getElementById("victory-message");
+    if (victoryMessageElement) {
+      victoryMessageElement.classList.remove("hidden");
+      victoryMessageElement.style.opacity = 1;
+    }
+
+    // 안내 메시지가 보이고 있다면 숨김
+    const instructionMessageElement = document.getElementById(
+      "instruction-message"
+    );
+    if (instructionMessageElement && this.isInstructionShown) {
+      instructionMessageElement.style.opacity = 0;
+      setTimeout(() => {
+        instructionMessageElement.classList.add("hidden");
+      }, 500);
+      this.isInstructionShown = false;
+    }
+
+    // 2. 10초 후 게임 초기화
+    setTimeout(() => {
+      this.resetGame();
+    }, 10000); // 10000ms = 10초
+  }
+
+  // 게임 초기화 함수
+  resetGame() {
+    console.log("Game reset requested. Reloading page...");
+    // 페이지 새로고침을 통해 게임 상태를 가장 간단하게 초기화합니다.
+    window.location.reload();
+  }
+
+  // 플랫폼 색상 변경 함수
+  flashPlatformColor(platformMesh) {
+    if (!platformMesh || !platformMesh.material) return;
+
+    // 반짝이는 색상 설정 (최종 플랫폼은 황금색, 일반 플랫폼은 밝은 파란색)
+    const flashColor = platformMesh.userData.isFinal ? 0xffd700 : 0x00ffff; // 금색 또는 청록색
+    const originalColor = platformMesh.userData.originalColor;
+
+    // 1. 색상 변경
+    platformMesh.material.color.setHex(flashColor);
+
+    // 2. 200ms 후 원래 색상으로 복구
+    setTimeout(() => {
+      // 복구 시에도 원래 색상으로 설정 (저장된 originalColor 사용)
+      platformMesh.material.color.setHex(originalColor);
+    }, 2000); // 2초 동안 색상 유지
+  }
+
   update() {
+    // 게임 오버 상태일 경우 렌더링만 하고 로직 건너뛰기
+    if (!this.player || this.isGameOver) {
+      // 렌더러가 DOM에 추가되어 있다면 렌더링만 유지 (선택 사항)
+      if (this.renderer.domElement.parentNode) {
+        this.renderer.render(this.scene, this.camera);
+      }
+      return;
+    }
+
     // ⭐⭐⭐ 1. 물리 세계 업데이트 (가장 중요) ⭐⭐⭐
     this.world.step(this.fixedTimeStep);
+
+    // 타이머 업데이트
+    this.updateTimer();
 
     // 2. Player 업데이트 (물리 계산된 위치를 3D 모델에 적용)
     this.player.update();
 
+    // ✅ 추가: 움직이는 플랫폼 업데이트 로직
+    const time = Date.now() * 0.001; // 현재 시간 (초 단위)
+    this.platforms.forEach((mesh) => {
+      // mesh.userData.isMoving 플래그가 true인 플랫폼만 움직입니다.
+      if (mesh.userData.isMoving) {
+        // GLTF 모델처럼 userData.physicsBody가 정의되지 않은 오브젝트는 건너뜁니다.
+        if (!mesh.userData.physicsBody) return;
+
+        const body = mesh.userData.physicsBody;
+        const startY = mesh.userData.startPos.y;
+
+        // 시간에 따라 사인 함수를 이용하여 Y축으로 움직입니다. (진폭 3m, 속도 1.5)
+        const newY = startY + Math.sin(time * 1.5) * 3;
+
+        // 1. Cannon.js 물리 바디 위치 업데이트
+        body.position.y = newY;
+
+        // 2. Three.js 메쉬 위치 업데이트
+        mesh.position.y = newY;
+      }
+    });
+    // 최대 높이 추적 및 표시 로직
+    if (this.player.body) {
+      const currentY = this.player.body.position.y;
+      if (currentY > this.maxHeightReached) {
+        this.maxHeightReached = currentY;
+        const displayElement = document.getElementById("max-height-display");
+        if (displayElement) {
+          // 소수점 첫째 자리까지 표시
+          displayElement.textContent = `최대 도달 높이 : ${this.maxHeightReached.toFixed(
+            1
+          )}m`;
+        }
+      }
+    }
+
     // 3. 카메라 추적
     if (this.player.model) {
-      const model = this.player.playerGroup;
-      this.camera.position.x = model.position.x;
+      const model = this.player.playerGroup; // ✅ 수정: 각도와 거리를 이용해 카메라 위치 계산
+      const camX =
+        model.position.x + this.cameraDistance * Math.sin(this.cameraAngle);
+      const camZ =
+        model.position.z + this.cameraDistance * Math.cos(this.cameraAngle);
+
+      this.camera.position.x = camX;
       this.camera.position.y = model.position.y + 3;
-      this.camera.position.z = model.position.z + 5;
+      this.camera.position.z = camZ;
       this.camera.lookAt(model.position);
     }
+
+    // 매 업데이트마다 승리 조건 확인
+    this.checkPlayerState();
 
     this.renderer.render(this.scene, this.camera);
   }
